@@ -1,0 +1,149 @@
+name: LoongArch64
+
+on: [push, pull_request, workflow_dispatch]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  source-smoke:
+    name: GCC 14 ISA source smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: none
+
+      - name: Install LoongArch toolchain and QEMU
+        run: |
+          sudo apt-get -y -qq update
+          sudo apt-get -y -qq --no-install-suggests --no-install-recommends install \
+            cmake \
+            file \
+            gcc-14-loongarch64-linux-gnu \
+            g++-14-loongarch64-linux-gnu \
+            ninja-build \
+            qemu-user-static
+          sudo update-alternatives --install /usr/bin/loongarch64-linux-gnu-gcc \
+            loongarch64-linux-gnu-gcc /usr/bin/loongarch64-linux-gnu-gcc-14 20
+          sudo update-alternatives --install /usr/bin/loongarch64-linux-gnu-g++ \
+            loongarch64-linux-gnu-g++ /usr/bin/loongarch64-linux-gnu-g++-14 20
+          loongarch64-linux-gnu-g++ --version
+          qemu-loongarch64-static --version
+
+      - name: Cross-build LSX/LASX backends and sparse codec
+        run: |
+          cmake -S tests/loongarch -B build-loongarch-simd \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/.github/toolchains/gcc-loongarch64-linux-gnu.cmake
+          cmake --build build-loongarch-simd --verbose
+          file build-loongarch-simd/simd_smoke | grep -q LoongArch
+          file build-loongarch-simd/codec_smoke | grep -q LoongArch
+
+      - name: Test LSX without LASX
+        run: >-
+          qemu-loongarch64-static
+          -cpu 'la464,lsx=on,lasx=off'
+          -L /usr/loongarch64-linux-gnu
+          build-loongarch-simd/simd_smoke lsx
+
+      - name: Test LASX
+        run: >-
+          qemu-loongarch64-static
+          -cpu 'la464,lsx=on,lasx=on'
+          -L /usr/loongarch64-linux-gnu
+          build-loongarch-simd/simd_smoke lasx
+
+      - name: Test LSX sparse codec
+        run: >-
+          qemu-loongarch64-static
+          -cpu 'la464,lsx=on,lasx=off'
+          -L /usr/loongarch64-linux-gnu
+          build-loongarch-simd/codec_smoke
+
+  cross-build:
+    name: GCC 14 full cross-build
+    needs: source-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: none
+
+      - name: Install build and target toolchains
+        run: |
+          sudo apt-get -y -qq update
+          sudo apt-get -y -qq --no-install-suggests --no-install-recommends install \
+            automake \
+            ccache \
+            cmake \
+            file \
+            gcc-14 \
+            g++-14 \
+            gcc-14-loongarch64-linux-gnu \
+            g++-14-loongarch64-linux-gnu \
+            ninja-build \
+            python3-venv \
+            qemu-user-static
+          sudo update-alternatives --install /usr/bin/loongarch64-linux-gnu-gcc \
+            loongarch64-linux-gnu-gcc /usr/bin/loongarch64-linux-gnu-gcc-14 20
+          sudo update-alternatives --install /usr/bin/loongarch64-linux-gnu-g++ \
+            loongarch64-linux-gnu-g++ /usr/bin/loongarch64-linux-gnu-g++-14 20
+          python3 -m venv "${RUNNER_TEMP}/conan"
+          "${RUNNER_TEMP}/conan/bin/pip" install "conan==2.32.0"
+          echo "${RUNNER_TEMP}/conan/bin" >> "${GITHUB_PATH}"
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-loongarch64-gcc14-${{ hashFiles('conanfile.py', '.github/conan/**') }}
+
+      - name: Configure Conan
+        run: |
+          conan remote add default-conan-local2 \
+            https://milvus01.jfrog.io/artifactory/api/conan/default-conan-local2 \
+            --force
+          install -D -m 0644 \
+            "${GITHUB_WORKSPACE}/.github/conan/hooks/hook_loongarch_config_sub.py" \
+            "$(conan config home)/extensions/hooks/hook_loongarch_config_sub.py"
+
+      - name: Cross-build Knowhere and unit tests
+        run: |
+          make \
+            BUILD_DIR="${GITHUB_WORKSPACE}/build-loongarch" \
+            WITH_UT=True \
+            WITH_DISKANN=False \
+            CONAN_HOST_PROFILE="${GITHUB_WORKSPACE}/.github/conan/profiles/loongarch64-gcc14" \
+            CONAN_BUILD_PROFILE="${GITHUB_WORKSPACE}/.github/conan/profiles/linux-x86_64-gcc14" \
+            build
+          file build-loongarch/Release/libknowhere.so | grep -q LoongArch
+          file build-loongarch/Release/tests/ut/knowhere_tests | grep -q LoongArch
+
+      - name: Run LSX tests
+        shell: bash
+        run: |
+          source build-loongarch/Release/generators/conanrun.sh
+          test_binary=build-loongarch/Release/tests/ut/knowhere_tests
+          qemu-loongarch64-static -cpu 'la464,lsx=on,lasx=off' -L /usr/loongarch64-linux-gnu \
+            "${test_binary}" '[simd]'
+          qemu-loongarch64-static -cpu 'la464,lsx=on,lasx=off' -L /usr/loongarch64-linux-gnu \
+            "${test_binary}" '[faiss_vanilla]'
+          qemu-loongarch64-static -cpu 'la464,lsx=on,lasx=off' -L /usr/loongarch64-linux-gnu \
+            "${test_binary}" '[sparse][sindi]'
+
+      - name: Run LASX dispatch tests
+        shell: bash
+        run: |
+          source build-loongarch/Release/generators/conanrun.sh
+          qemu-loongarch64-static -cpu 'la464,lsx=on,lasx=on' -L /usr/loongarch64-linux-gnu \
+            build-loongarch/Release/tests/ut/knowhere_tests '[simd]'

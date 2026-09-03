@@ -1,0 +1,15 @@
+[settings]
+os=Linux
+arch=x86_64
+compiler=gcc
+compiler.version=14
+compiler.libcxx=libstdc++11
+compiler.cppstd=20
+build_type=Release
+
+[conf]
+tools.build:compiler_executables={'c': 'gcc-14', 'cpp': 'g++-14'}
+tools.cmake.cmaketoolchain:generator=Ninja
+
+[buildenv]
+CMAKE_POLICY_VERSION_MINIMUM=3.5
