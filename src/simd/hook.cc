@@ -513,6 +513,11 @@ fvec_hook(std::string& simd_type) {
     support_pq_fast_scan = false;
 #endif
 
+#if defined(__loongarch__)
+    simd_type = "LSX";
+    support_pq_fast_scan = false;
+#endif
+
 // ToDo MG: include VSX intrinsics via distances_vsx once _ref tests succeed
 #if defined(__powerpc64__)
     fvec_inner_product = fvec_inner_product_ppc;
@@ -572,6 +577,14 @@ fvec_hook(std::string& simd_type) {
     if (faiss::SIMDConfig::is_simd_level_available(faiss::SIMDLevel::NONE)) {
         faiss::SIMDLevel target_level = faiss::SIMDConfig::auto_detect_simd_level();
         faiss::SIMDConfig::set_level(target_level);
+    }
+#endif
+
+#if defined(__loongarch__)
+    // Faiss has no LoongArch SIMDLevel yet. Keep its internal dispatch on the
+    // scalar backend.
+    if (faiss::SIMDConfig::is_simd_level_available(faiss::SIMDLevel::NONE)) {
+        faiss::SIMDConfig::set_level(faiss::SIMDLevel::NONE);
     }
 #endif
 }
