@@ -347,8 +347,15 @@ endif()
 
 # generate `knowhere_utils` library for LoongArch64
 if(__LOONGARCH64)
-  set(UTILS_SRC src/simd/hook.cc src/simd/distances_ref.cc)
-  add_library(knowhere_utils STATIC ${UTILS_SRC})
+  set(UTILS_SRC
+      src/simd/hook.cc
+      src/simd/distances_ref.cc)
+  add_library(utils_lsx OBJECT src/simd/distances_lsx.cc)
+  add_library(utils_lasx OBJECT src/simd/distances_lasx.cc)
+  target_compile_options(utils_lsx PRIVATE -mlsx -mno-lasx)
+  target_compile_options(utils_lasx PRIVATE -mlasx)
+
+  add_library(knowhere_utils STATIC ${UTILS_SRC} $<TARGET_OBJECTS:utils_lsx> $<TARGET_OBJECTS:utils_lasx>)
   target_link_libraries(knowhere_utils PUBLIC glog::glog)
   target_link_libraries(knowhere_utils PUBLIC xxHash::xxhash)
   target_link_libraries(knowhere_utils PUBLIC milvus-common::milvus-common)
