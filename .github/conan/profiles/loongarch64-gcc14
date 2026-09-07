@@ -1,0 +1,20 @@
+[settings]
+os=Linux
+arch=loongarch64
+compiler=gcc
+compiler.version=14
+compiler.libcxx=libstdc++11
+compiler.cppstd=20
+build_type=Release
+
+[options]
+openblas/*:target=LOONGSONGENERIC
+
+[conf]
+tools.build:compiler_executables={'c': 'loongarch64-linux-gnu-gcc', 'cpp': 'loongarch64-linux-gnu-g++'}
+tools.cmake.cmaketoolchain:generator=Ninja
+tools.cmake.cmaketoolchain:extra_variables={'CMAKE_CROSSCOMPILING_EMULATOR': '/usr/bin/qemu-loongarch64-static;-L;/usr/loongarch64-linux-gnu'}
+tools.build.cross_building:can_run=False
+
+[buildenv]
+CMAKE_POLICY_VERSION_MINIMUM=3.5

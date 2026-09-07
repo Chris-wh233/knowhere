@@ -31,6 +31,8 @@ WITH_CARDINAL ?=
 CARDINAL_VERSION_FORCE_CHECKOUT ?=
 WITH_DEBUG ?=
 CONAN_PROFILE ?=
+CONAN_HOST_PROFILE ?=
+CONAN_BUILD_PROFILE ?=
 
 # CMake 4.x removed compatibility with cmake_minimum_required versions below
 # 3.5. Export this so Conan-built third-party packages inherit it too.
@@ -114,8 +116,18 @@ ifneq ($(CARDINAL_VERSION_FORCE_CHECKOUT),)
     endif
 endif
 
-ifdef CONAN_PROFILE
+ifneq ($(CONAN_PROFILE),)
+    ifneq ($(strip $(CONAN_HOST_PROFILE)$(CONAN_BUILD_PROFILE)),)
+        $(error CONAN_PROFILE cannot be combined with CONAN_HOST_PROFILE or CONAN_BUILD_PROFILE)
+    endif
     CONAN_SETTINGS += -pr:h $(CONAN_PROFILE) -pr:b $(CONAN_PROFILE)
+else
+    ifneq ($(CONAN_HOST_PROFILE),)
+        CONAN_SETTINGS += -pr:h $(CONAN_HOST_PROFILE)
+    endif
+    ifneq ($(CONAN_BUILD_PROFILE),)
+        CONAN_SETTINGS += -pr:b $(CONAN_BUILD_PROFILE)
+    endif
 endif
 
 .PHONY: build test \
@@ -186,6 +198,8 @@ help: ## Show available targets
 	@echo "  CARDINAL_VERSION_FORCE_CHECKOUT=True Force Cardinal checkout to configured version"
 	@echo "  WITH_DEBUG=True    Debug build (default: Release)"
 	@echo "  CONAN_PROFILE=<p>  Use one custom Conan profile for host and build"
+	@echo "  CONAN_HOST_PROFILE=<p>  Use a custom Conan host profile"
+	@echo "  CONAN_BUILD_PROFILE=<p> Use a custom Conan build profile"
 	@echo "  LIBCXX=<lib>       Override compiler.libcxx (auto-detected from OS)"
 	@echo ""
 	@echo "Examples:"
@@ -196,4 +210,5 @@ help: ## Show available targets
 	@echo "  make WITH_DEBUG=True WITH_UT=True # CPU debug + UT"
 	@echo "  make LIBCXX=libc++                # override compiler.libcxx"
 	@echo "  make CONAN_PROFILE=/path/to/profile # CPU with custom profile"
+	@echo "  make CONAN_HOST_PROFILE=/path/to/host CONAN_BUILD_PROFILE=/path/to/build # cross-build"
 	@echo ""
